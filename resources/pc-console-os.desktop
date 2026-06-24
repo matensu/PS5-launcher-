@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=PC Console OS
+Comment=Console gaming experience for PC
+Exec=pc-console-os
+Icon=pc-console-os
+Terminal=false
+Categories=Game;
+StartupNotify=true
+X-GNOME-Autostart-enabled=true
