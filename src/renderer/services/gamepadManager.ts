@@ -8,10 +8,14 @@ export interface GamepadCallbacks {
   onBack?: () => void
   onMenu?: () => void
   onSearch?: () => void
+  onBumperLeft?: () => void
+  onBumperRight?: () => void
 }
 
-/** Start / Options (9), Guide Xbox (16), Home PS sur certains pilotes (17) */
-const OVERLAY_BUTTONS = [9, 16, 17] as const
+/** Options / Start — overlay */
+const OVERLAY_BUTTONS = [8, 9] as const
+/** Guide / Home — bascule jeu ↔ launcher si un jeu tourne */
+const GUIDE_BUTTONS = [16, 17] as const
 
 const BUTTON_MAP: Record<number, keyof GamepadCallbacks | 'dir'> = {
   12: 'dir',
@@ -20,7 +24,9 @@ const BUTTON_MAP: Record<number, keyof GamepadCallbacks | 'dir'> = {
   15: 'dir',
   0: 'onConfirm',
   1: 'onBack',
-  3: 'onSearch'
+  3: 'onSearch',
+  4: 'onBumperLeft',
+  5: 'onBumperRight'
 }
 
 const DIR_MAP: Record<number, GamepadDirection> = {
@@ -34,19 +40,29 @@ interface Subscription {
   id: symbol
   callbacks: GamepadCallbacks
   enabled: () => boolean
+  priority: number
 }
 
 let initialized = false
-let intervalId: ReturnType<typeof setInterval> | null = null
-let pollMs = 250
+let rafId = 0
 const pressed = new Set<number>()
 const overlayPressed = new Set<number>()
 let lastOverlayToggle = 0
+let lastFocusToggle = 0
 const subscriptions: Subscription[] = []
+
+function isButtonPressed(gp: Gamepad, index: number): boolean {
+  const btn = gp.buttons[index]
+  if (!btn) return false
+  return btn.pressed || (btn.value ?? 0) > 0.45
+}
 
 function getGamepad(): Gamepad | null {
   const pads = navigator.getGamepads()
-  return pads[0] ?? pads[1] ?? pads[2] ?? pads[3] ?? null
+  for (const pad of pads) {
+    if (pad) return pad
+  }
+  return null
 }
 
 function edgePress(buttonIndex: number, set: Set<number>, isPressed: boolean): boolean {
@@ -62,16 +78,59 @@ function edgePress(buttonIndex: number, set: Set<number>, isPressed: boolean): b
 
 function toggleOverlay(): void {
   const now = Date.now()
-  if (now - lastOverlayToggle < 600) return
+  if (now - lastOverlayToggle < 500) return
   lastOverlayToggle = now
   void window.electronAPI?.overlay.toggle()
 }
 
+function toggleLauncherGameFocus(): void {
+  const now = Date.now()
+  if (now - lastFocusToggle < 500) return
+  lastFocusToggle = now
+
+  const { runningGame, launcherHasFocus, setLauncherHasFocus } = useAppStore.getState()
+  if (!runningGame) {
+    toggleOverlay()
+    return
+  }
+
+  if (launcherHasFocus) {
+    void window.electronAPI?.window.focusGame()
+    setLauncherHasFocus(false)
+  } else {
+    void window.electronAPI?.window.focus()
+    setLauncherHasFocus(true)
+  }
+}
+
 function handleOverlayButtons(gp: Gamepad): void {
   for (const idx of OVERLAY_BUTTONS) {
-    const isPressed = gp.buttons[idx]?.pressed ?? false
-    if (edgePress(idx, overlayPressed, isPressed)) {
+    if (edgePress(idx, overlayPressed, isButtonPressed(gp, idx))) {
       toggleOverlay()
+      return
+    }
+  }
+
+  for (const idx of GUIDE_BUTTONS) {
+    if (edgePress(idx + 100, overlayPressed, isButtonPressed(gp, idx))) {
+      toggleLauncherGameFocus()
+      return
+    }
+  }
+
+  for (let i = 0; i < gp.buttons.length; i++) {
+    const label = gp.buttons[i]?.label?.toLowerCase() ?? ''
+    if (label.includes('start') || label.includes('options') || label.includes('menu')) {
+      if (edgePress(1000 + i, overlayPressed, isButtonPressed(gp, i))) {
+        toggleOverlay()
+        return
+      }
+    }
+    if (label.includes('guide') || label.includes('home') || label.includes('ps')) {
+      if (edgePress(2000 + i, overlayPressed, isButtonPressed(gp, i))) {
+        toggleLauncherGameFocus()
+        return
+      }
     }
   }
 }
@@ -79,9 +138,7 @@ function handleOverlayButtons(gp: Gamepad): void {
 function handleNavigation(gp: Gamepad, callbacks: GamepadCallbacks): void {
   for (const [indexStr, action] of Object.entries(BUTTON_MAP)) {
     const index = Number(indexStr)
-    const isPressed = gp.buttons[index]?.pressed ?? false
-
-    if (edgePress(index, pressed, isPressed)) {
+    if (edgePress(index, pressed, isButtonPressed(gp, index))) {
       if (action === 'dir') {
         callbacks.onNavigate?.(DIR_MAP[index]!)
       } else {
@@ -91,7 +148,7 @@ function handleNavigation(gp: Gamepad, callbacks: GamepadCallbacks): void {
     }
   }
 
-  const threshold = 0.55
+  const threshold = 0.5
   const stickX = gp.axes[0] ?? 0
   const stickY = gp.axes[1] ?? 0
 
@@ -128,62 +185,49 @@ function handleNavigation(gp: Gamepad, callbacks: GamepadCallbacks): void {
 
 function poll(): void {
   const gp = getGamepad()
-  const setNavigationMode = useAppStore.getState().setNavigationMode
 
-  if (!gp?.connected) {
-    if (pollMs !== 250) {
-      pollMs = 250
-      restartInterval()
-    }
+  if (!gp) {
+    rafId = requestAnimationFrame(poll)
     return
   }
 
-  if (pollMs !== 20) {
-    pollMs = 20
-    restartInterval()
-  }
-
-  setNavigationMode('gamepad')
+  useAppStore.getState().setNavigationMode('gamepad')
   handleOverlayButtons(gp)
 
-  for (let i = subscriptions.length - 1; i >= 0; i--) {
-    const sub = subscriptions[i]!
-    if (sub.enabled()) {
-      handleNavigation(gp, sub.callbacks)
-      break
-    }
-  }
-}
+  const active = [...subscriptions]
+    .filter((s) => s.enabled())
+    .sort((a, b) => b.priority - a.priority)[0]
 
-function restartInterval(): void {
-  if (intervalId) clearInterval(intervalId)
-  intervalId = setInterval(poll, pollMs)
+  if (active) {
+    handleNavigation(gp, active.callbacks)
+  }
+
+  rafId = requestAnimationFrame(poll)
 }
 
 export function initGamepadManager(): void {
   if (initialized) return
   initialized = true
 
-  const onChange = (): void => {
-    if (getGamepad()?.connected) poll()
+  const wake = (): void => {
+    for (const pad of navigator.getGamepads()) {
+      if (pad) poll()
+    }
   }
 
-  window.addEventListener('gamepadconnected', onChange)
-  window.addEventListener('gamepaddisconnected', onChange)
-  restartInterval()
+  window.addEventListener('gamepadconnected', wake)
+  window.addEventListener('gamepaddisconnected', wake)
+  rafId = requestAnimationFrame(poll)
 }
 
 export function subscribeGamepad(
   callbacks: GamepadCallbacks,
-  enabled: () => boolean
+  enabled: () => boolean,
+  priority = 0
 ): () => void {
   initGamepadManager()
   const id = Symbol('gamepad-sub')
-  const sub: Subscription = {
-    id,
-    callbacks,
-    enabled
-  }
+  const sub: Subscription = { id, callbacks, enabled, priority }
   subscriptions.push(sub)
 
   return () => {

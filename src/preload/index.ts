@@ -5,7 +5,9 @@ const electronAPI = {
     minimize: () => ipcRenderer.invoke('window:minimize'),
     maximize: () => ipcRenderer.invoke('window:maximize'),
     close: () => ipcRenderer.invoke('window:close'),
-    toggleFullscreen: () => ipcRenderer.invoke('window:toggleFullscreen')
+    toggleFullscreen: () => ipcRenderer.invoke('window:toggleFullscreen'),
+    focus: () => ipcRenderer.invoke('window:focus') as Promise<boolean>,
+    focusGame: () => ipcRenderer.invoke('window:focusGame') as Promise<boolean>
   },
   app: {
     getVersion: () => ipcRenderer.invoke('app:getVersion') as Promise<string>,

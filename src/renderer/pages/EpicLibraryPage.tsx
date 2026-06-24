@@ -2,13 +2,14 @@ import { useState, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Download, Play, RefreshCw, HardDrive, CloudDownload, ArrowLeft, ExternalLink } from 'lucide-react'
+import { Download, Play, RefreshCw, HardDrive, CloudDownload, ArrowLeft, ExternalLink, Square } from 'lucide-react'
 import { api } from '../services/api'
 import { CinematicBackground } from '../components/CinematicBackground'
 import { LibraryTabs } from '../components/LibraryTabs'
 import { InstallProgressModal, type InstallTarget } from '../components/InstallProgressModal'
 import { ControllerSearchBar } from '../components/ControllerSearchBar'
 import { useLibraryGamepad } from '../hooks/useLibraryGamepad'
+import { useRunningGame, useStopGame } from '../hooks/useRunningGame'
 import type { EpicLibraryGame } from '@shared/types'
 
 type FilterMode = 'all' | 'installed' | 'not-installed'
@@ -24,14 +25,20 @@ function EpicGameCard({
   onOpen,
   onInstall,
   onPlay,
+  onStop,
   isInstalling,
+  isStopping,
+  isRunning,
   isFocused
 }: {
   game: EpicLibraryGame
   onOpen: () => void
   onInstall: () => void
   onPlay: () => void
+  onStop: () => void
   isInstalling: boolean
+  isStopping?: boolean
+  isRunning?: boolean
   isFocused?: boolean
 }): JSX.Element {
   const [imgFailed, setImgFailed] = useState(false)
@@ -61,7 +68,13 @@ function EpicGameCard({
           </div>
         )}
         <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-transparent" />
-        <div className="absolute top-2 right-2">
+        <div className="absolute top-2 right-2 flex flex-col items-end gap-1">
+          {isRunning && (
+            <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/80 text-white backdrop-blur-sm flex items-center gap-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
+              En cours
+            </span>
+          )}
           <span
             className={`px-2 py-0.5 rounded-full text-[10px] font-semibold backdrop-blur-sm ${
               game.installed ? 'bg-emerald-500/80 text-white' : 'bg-amber-500/80 text-white'
@@ -73,16 +86,30 @@ function EpicGameCard({
         <div className="absolute bottom-0 left-0 right-0 p-3">
           <h3 className="text-sm font-semibold text-white line-clamp-2 mb-2">{game.name}</h3>
           {game.installed ? (
-            <button
-              onClick={(e) => {
-                e.stopPropagation()
-                onPlay()
-              }}
-              className="w-full flex items-center justify-center gap-1.5 py-2 rounded-xl bg-white text-black text-xs font-bold"
-            >
-              <Play size={14} fill="currentColor" />
-              Jouer
-            </button>
+            isRunning ? (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onStop()
+                }}
+                disabled={isStopping}
+                className="w-full flex items-center justify-center gap-1.5 py-2 rounded-xl bg-red-500/25 text-red-100 text-xs font-bold border border-red-400/30 disabled:opacity-50"
+              >
+                <Square size={14} fill="currentColor" />
+                {isStopping ? 'Fermeture...' : 'Quitter'}
+              </button>
+            ) : (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onPlay()
+                }}
+                className="w-full flex items-center justify-center gap-1.5 py-2 rounded-xl bg-white text-black text-xs font-bold"
+              >
+                <Play size={14} fill="currentColor" />
+                Jouer
+              </button>
+            )
           ) : (
             <button
               onClick={(e) => {
@@ -110,10 +137,21 @@ export function EpicLibraryPage(): JSX.Element {
   const [searchOpen, setSearchOpen] = useState(false)
   const [installTarget, setInstallTarget] = useState<InstallTarget | null>(null)
   const [hoveredGame, setHoveredGame] = useState<EpicLibraryGame | null>(null)
+  const [stoppingAppName, setStoppingAppName] = useState<string | null>(null)
+  const runningGame = useRunningGame()
+  const { stopGame } = useStopGame()
 
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: ['epic-library'],
-    queryFn: api.getEpicLibrary
+    queryFn: api.getEpicLibrary,
+    staleTime: 300_000,
+    gcTime: 600_000,
+    refetchOnMount: 'always',
+    refetchInterval: (query) => {
+      const games = query.state.data?.games
+      if (!games?.some((g) => !g.coverUrl)) return false
+      return 4000
+    }
   })
 
   const syncMutation = useMutation({
@@ -147,7 +185,7 @@ export function EpicLibraryPage(): JSX.Element {
 
   const filterIndex = FILTERS.findIndex((f) => f.id === filter)
 
-  const { focusedIndex, registerGridRef, isGridFocused, isFilterFocused, isSearchFocused } =
+  const { focusedIndex, registerGridRef, isGridFocused, isFilterFocused, isSearchFocused, isTabsFocused } =
     useLibraryGamepad({
       items: filteredGames,
       filterCount: FILTERS.length,
@@ -175,10 +213,24 @@ export function EpicLibraryPage(): JSX.Element {
     const dbGame = installedGames.find((g) => g.appId === game.appName && g.platform === 'epic')
     if (dbGame) {
       await api.launchGame(dbGame.id)
+      queryClient.invalidateQueries({ queryKey: ['running-game'] })
     } else {
       await api.launchEpicGame(game.appName)
     }
   }
+
+  const handleStop = async (game: EpicLibraryGame) => {
+    const dbGame = installedGames.find((g) => g.appId === game.appName && g.platform === 'epic')
+    if (!dbGame) return
+    setStoppingAppName(game.appName)
+    try {
+      await stopGame(dbGame.id)
+    } finally {
+      setStoppingAppName(null)
+    }
+  }
+
+  const runningAppName = installedGames.find((g) => g.id === runningGame?.gameId)?.appId
 
   return (
     <div className="relative h-full flex flex-col overflow-hidden">
@@ -198,7 +250,7 @@ export function EpicLibraryPage(): JSX.Element {
           Accueil
         </button>
 
-        <LibraryTabs />
+        <LibraryTabs focused={isTabsFocused} />
 
         <div className="flex items-start justify-between gap-6 mb-6">
           <div>
@@ -206,7 +258,9 @@ export function EpicLibraryPage(): JSX.Element {
             <p className="text-white/50 mt-1">
               {stats.total} jeux · {stats.installed} installés · {stats.notInstalled} à installer
             </p>
-            <p className="text-white/35 text-xs mt-1">Manette : Y = recherche · B = retour</p>
+            <p className="text-white/35 text-xs mt-1">
+              Manette : L1/R1 onglets & filtres · Y recherche · B retour · Options overlay
+            </p>
           </div>
           <button
             onClick={() => syncMutation.mutate()}
@@ -297,9 +351,12 @@ export function EpicLibraryPage(): JSX.Element {
                       onOpen={() => navigate(`/library/epic/${encodeURIComponent(game.appName)}`)}
                       onInstall={() => handleInstall(game)}
                       onPlay={() => handlePlay(game)}
+                      onStop={() => handleStop(game)}
                       isInstalling={
                         installTarget?.platform === 'epic' && installTarget.id === game.appName
                       }
+                      isStopping={stoppingAppName === game.appName}
+                      isRunning={runningAppName === game.appName}
                       isFocused={isGridFocused(index)}
                     />
                   </div>

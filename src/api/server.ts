@@ -11,9 +11,12 @@ import {
   unlockTrophy
 } from '../database'
 import { syncDetectedGames, launchGame } from '../launcher/gameDetector'
+import { getRunningGame, stopRunningGame } from '../launcher/runningGame'
 import {
   getSteamLibrary,
   enrichSteamLibraryNames,
+  enrichSteamLibraryNamesWithTimeout,
+  buildSteamLibraryResponse,
   syncSteamLibraryToDatabase,
   installSteamGame,
   isSteamAvailable,
@@ -35,7 +38,7 @@ import {
   getEpicLauncherInfo
 } from '../launcher/epicLibrary'
 import { getSteamInstallStatus } from '../launcher/steamInstall'
-import { enrichEpicLibraryImages } from '../launcher/epicMetadata'
+import { enrichEpicLibraryImages, enrichEpicLibraryImagesWithTimeout } from '../launcher/epicMetadata'
 import { getEpicInstallStatus } from '../launcher/epicInstall'
 import { searchStore, openStorePurchase } from '../launcher/gameStore'
 import {
@@ -131,21 +134,14 @@ export function createApiServer(port = 3847): ReturnType<typeof express> {
       }
       const payload = await steamLibraryCache.getOrSetAsync('full', async () => {
         const library = getSteamLibrary()
-        const enriched = await enrichSteamLibraryNames(library)
-        const installed = enriched.filter((g) => g.installed).length
-        const steamTools = enriched.filter((g) => g.steamTools).length
-        return {
-          games: enriched,
-          stats: {
-            total: enriched.length,
-            installed,
-            notInstalled: enriched.length - installed,
-            steamTools
-          },
-          steamTools: getSteamToolsStatus()
-        }
+        const enriched = await enrichSteamLibraryNamesWithTimeout(library, 1500)
+        return buildSteamLibraryResponse(enriched)
       })
       res.json(payload)
+
+      void enrichSteamLibraryNames(getSteamLibrary()).then((enriched) => {
+        steamLibraryCache.set('full', buildSteamLibraryResponse(enriched), 300_000)
+      })
     } catch (err) {
       res.status(500).json({ error: (err as Error).message })
     }
@@ -232,7 +228,7 @@ export function createApiServer(port = 3847): ReturnType<typeof express> {
       return res.status(404).json({ error: 'Epic Games Launcher non détecté' })
     }
     const payload = await epicLibraryCache.getOrSetAsync('full', async () => {
-      const games = await enrichEpicLibraryImages(getEpicLibrary())
+      const games = await enrichEpicLibraryImagesWithTimeout(getEpicLibrary(), 1500)
       const installed = games.filter((g) => g.installed).length
       const launcher = getEpicLauncherInfo()
       return {
@@ -242,6 +238,19 @@ export function createApiServer(port = 3847): ReturnType<typeof express> {
       }
     })
     res.json(payload)
+
+    void enrichEpicLibraryImages(getEpicLibrary()).then((games) => {
+      const installed = games.filter((g) => g.installed).length
+      epicLibraryCache.set(
+        'full',
+        {
+          games,
+          stats: { total: games.length, installed, notInstalled: games.length - installed },
+          launcher: getEpicLauncherInfo()
+        },
+        300_000
+      )
+    })
   })
 
   app.post('/api/epic/library/sync', (_req, res) => {
@@ -377,6 +386,20 @@ export function createApiServer(port = 3847): ReturnType<typeof express> {
     if (!success) return res.status(500).json({ error: 'Failed to launch game' })
     gamesListCache.clear()
     statsCache.clear()
+    res.json({ success: true })
+  })
+
+  app.get('/api/games/running', (_req, res) => {
+    res.json({ running: getRunningGame() })
+  })
+
+  app.post('/api/games/:id/stop', async (req, res) => {
+    const running = getRunningGame()
+    if (!running || running.gameId !== req.params.id) {
+      return res.status(404).json({ error: 'Game is not running' })
+    }
+    const stopped = await stopRunningGame(req.params.id)
+    if (!stopped) return res.status(500).json({ error: 'Failed to stop game' })
     res.json({ success: true })
   })
 

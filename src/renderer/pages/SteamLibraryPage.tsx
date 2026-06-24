@@ -11,7 +11,8 @@ import {
   ArrowLeft,
   Clock,
   Upload,
-  Puzzle
+  Puzzle,
+  Square
 } from 'lucide-react'
 import { api } from '../services/api'
 import { CinematicBackground } from '../components/CinematicBackground'
@@ -19,6 +20,7 @@ import { LibraryTabs } from '../components/LibraryTabs'
 import { InstallProgressModal, type InstallTarget } from '../components/InstallProgressModal'
 import { ControllerSearchBar } from '../components/ControllerSearchBar'
 import { useLibraryGamepad } from '../hooks/useLibraryGamepad'
+import { useRunningGame, useStopGame } from '../hooks/useRunningGame'
 import type { SteamLibraryGame } from '@shared/types'
 
 type FilterMode = 'all' | 'installed' | 'not-installed' | 'steamtools'
@@ -35,14 +37,20 @@ function GameCard({
   onOpen,
   onInstall,
   onPlay,
+  onStop,
   isInstalling,
+  isStopping,
+  isRunning,
   isFocused
 }: {
   game: SteamLibraryGame
   onOpen: () => void
   onInstall: () => void
   onPlay: () => void
+  onStop: () => void
   isInstalling: boolean
+  isStopping?: boolean
+  isRunning?: boolean
   isFocused?: boolean
 }): JSX.Element {
   const [imgFailed, setImgFailed] = useState(false)
@@ -78,6 +86,12 @@ function GameCard({
         <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-transparent" />
 
         <div className="absolute top-2 right-2 flex flex-col items-end gap-1">
+          {isRunning && (
+            <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/80 text-white backdrop-blur-sm flex items-center gap-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
+              En cours
+            </span>
+          )}
           {game.steamTools && (
             <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-violet-500/80 text-white backdrop-blur-sm">
               SteamTools
@@ -105,16 +119,30 @@ function GameCard({
           <h3 className="text-sm font-semibold text-white line-clamp-2 leading-tight mb-2">{game.name}</h3>
 
           {game.installed ? (
-            <button
-              onClick={(e) => {
-                e.stopPropagation()
-                onPlay()
-              }}
-              className="w-full flex items-center justify-center gap-1.5 py-2 rounded-xl bg-white text-black text-xs font-bold hover:bg-white/90 transition-colors"
-            >
-              <Play size={14} fill="currentColor" />
-              Jouer
-            </button>
+            isRunning ? (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onStop()
+                }}
+                disabled={isStopping}
+                className="w-full flex items-center justify-center gap-1.5 py-2 rounded-xl bg-red-500/25 hover:bg-red-500/35 text-red-100 text-xs font-bold border border-red-400/30 transition-colors disabled:opacity-50"
+              >
+                <Square size={14} fill="currentColor" />
+                {isStopping ? 'Fermeture...' : 'Quitter'}
+              </button>
+            ) : (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onPlay()
+                }}
+                className="w-full flex items-center justify-center gap-1.5 py-2 rounded-xl bg-white text-black text-xs font-bold hover:bg-white/90 transition-colors"
+              >
+                <Play size={14} fill="currentColor" />
+                Jouer
+              </button>
+            )
           ) : (
             <button
               onClick={(e) => {
@@ -145,11 +173,23 @@ export function SteamLibraryPage(): JSX.Element {
 
   const [appIdInput, setAppIdInput] = useState('')
   const [importMessage, setImportMessage] = useState<string | null>(null)
+  const [stoppingAppId, setStoppingAppId] = useState<string | null>(null)
+  const runningGame = useRunningGame()
+  const { stopGame } = useStopGame()
 
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: ['steam-library'],
     queryFn: api.getSteamLibrary,
-    staleTime: 60_000
+    staleTime: 300_000,
+    gcTime: 600_000,
+    refetchOnMount: 'always',
+    refetchInterval: (query) => {
+      const games = query.state.data?.games
+      if (!games?.length) return false
+      const hasPlaceholders = games.some((g) => /^Jeu Steam \d+$/i.test(g.name))
+      const missingCovers = games.some((g) => !g.coverUrl)
+      return hasPlaceholders || missingCovers ? 4000 : false
+    }
   })
 
   const syncMutation = useMutation({
@@ -227,10 +267,24 @@ export function SteamLibraryPage(): JSX.Element {
     const dbGame = installedGames.find((g) => g.appId === game.appId)
     if (dbGame) {
       await api.launchGame(dbGame.id)
+      queryClient.invalidateQueries({ queryKey: ['running-game'] })
     } else {
       handleInstall(game)
     }
   }
+
+  const handleStop = async (game: SteamLibraryGame) => {
+    const dbGame = installedGames.find((g) => g.appId === game.appId)
+    if (!dbGame) return
+    setStoppingAppId(game.appId)
+    try {
+      await stopGame(dbGame.id)
+    } finally {
+      setStoppingAppId(null)
+    }
+  }
+
+  const runningAppId = installedGames.find((g) => g.id === runningGame?.gameId)?.appId
 
   const filters: { id: FilterMode; label: string; count: number }[] = [
     { id: 'all', label: 'Tous', count: stats.total },
@@ -241,7 +295,7 @@ export function SteamLibraryPage(): JSX.Element {
 
   const filterIndex = filters.findIndex((f) => f.id === filter)
 
-  const { focusedIndex, registerGridRef, isGridFocused, isFilterFocused, isSearchFocused } =
+  const { focusedIndex, registerGridRef, isGridFocused, isFilterFocused, isSearchFocused, isTabsFocused } =
     useLibraryGamepad({
       items: filteredGames,
       filterCount: filters.length,
@@ -279,7 +333,9 @@ export function SteamLibraryPage(): JSX.Element {
             <p className="text-white/50 mt-1">
               {stats.total} jeux · {stats.installed} installés · {stats.steamTools} SteamTools
             </p>
-            <p className="text-white/35 text-xs mt-1">Manette : Y = recherche · B = retour</p>
+            <p className="text-white/35 text-xs mt-1">
+              Manette : L1/R1 onglets & filtres · Y recherche · B retour · Guide bascule jeu/launcher · Options overlay
+            </p>
             {steamToolsStatus?.enabled && (
               <p className="text-white/35 text-xs mt-1 flex items-center gap-1.5">
                 <Puzzle size={12} />
@@ -328,7 +384,7 @@ export function SteamLibraryPage(): JSX.Element {
           </div>
         </div>
 
-        <LibraryTabs />
+        <LibraryTabs focused={isTabsFocused} />
 
         {importMessage && (
           <p className="text-sm text-violet-200/80 mb-4 px-3 py-2 rounded-xl bg-violet-500/10 border border-violet-400/20">
@@ -397,7 +453,10 @@ export function SteamLibraryPage(): JSX.Element {
                       onOpen={() => navigate(`/library/game/${game.appId}`)}
                       onInstall={() => handleInstall(game)}
                       onPlay={() => handlePlay(game)}
+                      onStop={() => handleStop(game)}
                       isInstalling={installTarget?.platform === 'steam' && installTarget.id === game.appId}
+                      isStopping={stoppingAppId === game.appId}
+                      isRunning={runningAppId === game.appId}
                       isFocused={isGridFocused(index)}
                     />
                   </div>

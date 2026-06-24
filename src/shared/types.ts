@@ -22,6 +22,14 @@ export interface Game {
   addedAt: string
 }
 
+export interface RunningGameInfo {
+  gameId: string
+  name: string
+  platform: GamePlatform
+  startedAt: string
+  pids: number[]
+}
+
 export interface SteamLibraryGame {
   appId: string
   name: string

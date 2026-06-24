@@ -64,7 +64,8 @@ export function OnScreenKeyboard({
       else onClose()
     }
   },
-  open
+  open,
+  200
   )
 
   if (!open) return null

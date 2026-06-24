@@ -1,10 +1,12 @@
 import { useParams, useNavigate } from 'react-router-dom'
-import { useQuery, useMutation } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft } from 'lucide-react'
 import { api } from '../services/api'
 import { CinematicBackground } from '../components/CinematicBackground'
 import { GameFocusBar } from '../components/GameFocusBar'
 import { GameAchievementsPanel } from '../components/GameAchievementsPanel'
+import { useRunningGame, useStopGame } from '../hooks/useRunningGame'
+import { useState } from 'react'
 
 export function GameHubPage(): JSX.Element {
   const { id } = useParams<{ id: string }>()
@@ -16,7 +18,16 @@ export function GameHubPage(): JSX.Element {
     enabled: !!id
   })
 
-  const launchMutation = useMutation({ mutationFn: () => api.launchGame(id!) })
+  const queryClient = useQueryClient()
+  const runningGame = useRunningGame()
+  const { stopGame } = useStopGame()
+  const [isStopping, setIsStopping] = useState(false)
+  const isRunning = runningGame?.gameId === id
+
+  const launchMutation = useMutation({
+    mutationFn: () => api.launchGame(id!),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['running-game'] })
+  })
 
   if (isLoading || !game) {
     return (
@@ -50,7 +61,17 @@ export function GameHubPage(): JSX.Element {
           <GameFocusBar
             game={game}
             onPlay={() => launchMutation.mutate()}
+            onStop={async () => {
+              setIsStopping(true)
+              try {
+                await stopGame(game.id)
+              } finally {
+                setIsStopping(false)
+              }
+            }}
             isLaunching={launchMutation.isPending}
+            isStopping={isStopping}
+            isRunning={isRunning}
             showMoreButton={false}
           />
 

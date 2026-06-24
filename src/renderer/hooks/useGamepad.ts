@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { subscribeGamepad, type GamepadCallbacks } from '../services/gamepadManager'
 
-export function useGamepad(callbacks: GamepadCallbacks, enabled = true): void {
+export function useGamepad(callbacks: GamepadCallbacks, enabled = true, priority = 0): void {
   const callbacksRef = useRef(callbacks)
   callbacksRef.current = callbacks
   const enabledRef = useRef(enabled)
@@ -14,11 +14,14 @@ export function useGamepad(callbacks: GamepadCallbacks, enabled = true): void {
         onConfirm: () => callbacksRef.current.onConfirm?.(),
         onBack: () => callbacksRef.current.onBack?.(),
         onMenu: () => callbacksRef.current.onMenu?.(),
-        onSearch: () => callbacksRef.current.onSearch?.()
+        onSearch: () => callbacksRef.current.onSearch?.(),
+        onBumperLeft: () => callbacksRef.current.onBumperLeft?.(),
+        onBumperRight: () => callbacksRef.current.onBumperRight?.()
       },
-      () => enabledRef.current
+      () => enabledRef.current,
+      priority
     )
-  }, [])
+  }, [priority])
 }
 
 export function useGamepadConnected(): boolean {
@@ -27,14 +30,16 @@ export function useGamepadConnected(): boolean {
   useEffect(() => {
     const check = () => {
       const pads = navigator.getGamepads()
-      setConnected([...pads].some((p) => p?.connected))
+      setConnected([...pads].some((p) => p != null))
     }
     check()
     window.addEventListener('gamepadconnected', check)
     window.addEventListener('gamepaddisconnected', check)
+    const interval = setInterval(check, 1000)
     return () => {
       window.removeEventListener('gamepadconnected', check)
       window.removeEventListener('gamepaddisconnected', check)
+      clearInterval(interval)
     }
   }, [])
 

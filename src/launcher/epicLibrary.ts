@@ -209,7 +209,8 @@ export async function launchEpicGameByAppName(appName: string): Promise<boolean>
       return false
     }
   }
-  return launchEpicGameDirect(game)
+  const result = await launchEpicGameDirect(game)
+  return result.ok
 }
 
 export async function installEpicGameByAppName(appName: string): Promise<boolean> {

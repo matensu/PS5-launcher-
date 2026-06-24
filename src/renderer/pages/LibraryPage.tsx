@@ -9,6 +9,7 @@ import { GameTopStrip } from '../components/GameTopStrip'
 import { GameFocusBar } from '../components/GameFocusBar'
 import { DashboardWidgets } from '../components/DashboardWidgets'
 import { useGamepad } from '../hooks/useGamepad'
+import { useRunningGame, useStopGame } from '../hooks/useRunningGame'
 import { useAppStore } from '../stores/appStore'
 import type { Game } from '@shared/types'
 
@@ -35,7 +36,16 @@ export function LibraryPage(): JSX.Element {
     }
   })
 
-  const launchMutation = useMutation({ mutationFn: api.launchGame })
+  const launchMutation = useMutation({
+    mutationFn: api.launchGame,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['running-game'] })
+      useAppStore.getState().setLauncherHasFocus(false)
+    }
+  })
+  const { stopGame } = useStopGame()
+  const [isStopping, setIsStopping] = useState(false)
+  const runningGame = useRunningGame()
 
   const maxStripIndex = games.length
   const isMenu = focusedIndex === -1
@@ -79,7 +89,13 @@ export function LibraryPage(): JSX.Element {
         navigate('/library')
         return
       }
-      if (isGameFocus && focusedGame) handleLaunch(focusedGame)
+      if (isGameFocus && focusedGame) {
+        if (runningGame?.gameId === focusedGame.id) {
+          void handleStop(focusedGame)
+        } else {
+          handleLaunch(focusedGame)
+        }
+      }
     },
     onBack: () => {
       if (focusedIndex > -1) scrollFocus(-1)
@@ -94,6 +110,15 @@ export function LibraryPage(): JSX.Element {
 
   const handleLaunch = async (game: Game) => {
     await launchMutation.mutateAsync(game.id)
+  }
+
+  const handleStop = async (game: Game) => {
+    setIsStopping(true)
+    try {
+      await stopGame(game.id)
+    } finally {
+      setIsStopping(false)
+    }
   }
 
   const scannerButton = (
@@ -167,8 +192,11 @@ export function LibraryPage(): JSX.Element {
                   <GameFocusBar
                     game={focusedGame}
                     onPlay={() => handleLaunch(focusedGame)}
+                    onStop={() => handleStop(focusedGame)}
                     onDetails={() => navigate(`/game/${focusedGame.id}`)}
                     isLaunching={launchMutation.isPending}
+                    isStopping={isStopping}
+                    isRunning={runningGame?.gameId === focusedGame.id}
                   />
                 </div>
               ) : isLibraryTile ? (

@@ -386,6 +386,37 @@ export async function enrichSteamLibraryNames(entries: SteamLibraryEntry[]): Pro
   return enriched
 }
 
+export function buildSteamLibraryResponse(entries: SteamLibraryEntry[]): {
+  games: SteamLibraryEntry[]
+  stats: { total: number; installed: number; notInstalled: number; steamTools: number }
+  steamTools: ReturnType<typeof getSteamToolsStatus>
+} {
+  const installed = entries.filter((g) => g.installed).length
+  const steamTools = entries.filter((g) => g.steamTools).length
+  return {
+    games: entries,
+    stats: {
+      total: entries.length,
+      installed,
+      notInstalled: entries.length - installed,
+      steamTools
+    },
+    steamTools: getSteamToolsStatus()
+  }
+}
+
+export async function enrichSteamLibraryNamesWithTimeout(
+  entries: SteamLibraryEntry[],
+  timeoutMs = 1500
+): Promise<SteamLibraryEntry[]> {
+  return Promise.race([
+    enrichSteamLibraryNames(entries),
+    new Promise<SteamLibraryEntry[]>((resolve) => {
+      setTimeout(() => resolve(entries.map((e) => ({ ...e }))), timeoutMs)
+    })
+  ])
+}
+
 export async function getSteamGameByAppId(appId: string): Promise<SteamGameDetails | null> {
   const library = getSteamLibrary()
   const entry = library.find((g) => g.appId === appId)

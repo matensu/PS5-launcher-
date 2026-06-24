@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { Settings, AchievementNotification } from '@shared/types'
+import type { Settings, AchievementNotification, RunningGameInfo } from '@shared/types'
 
 interface AppState {
   settings: Settings | null
@@ -12,6 +12,10 @@ interface AppState {
   setFocusedIndex: (index: number) => void
   navigationMode: 'gamepad' | 'keyboard'
   setNavigationMode: (mode: 'gamepad' | 'keyboard') => void
+  runningGame: RunningGameInfo | null
+  setRunningGame: (game: RunningGameInfo | null) => void
+  launcherHasFocus: boolean
+  setLauncherHasFocus: (focused: boolean) => void
 }
 
 export const useAppStore = create<AppState>((set) => ({
@@ -26,5 +30,9 @@ export const useAppStore = create<AppState>((set) => ({
   focusedIndex: 0,
   setFocusedIndex: (index) => set({ focusedIndex: index }),
   navigationMode: 'keyboard',
-  setNavigationMode: (mode) => set({ navigationMode: mode })
+  setNavigationMode: (mode) => set({ navigationMode: mode }),
+  runningGame: null,
+  setRunningGame: (game) => set({ runningGame: game }),
+  launcherHasFocus: true,
+  setLauncherHasFocus: (focused) => set({ launcherHasFocus: focused })
 }))

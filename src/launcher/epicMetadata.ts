@@ -106,3 +106,15 @@ export async function enrichEpicLibraryImages(
 
   return enriched
 }
+
+export async function enrichEpicLibraryImagesWithTimeout(
+  entries: EpicLibraryEntry[],
+  timeoutMs = 1500
+): Promise<EpicLibraryEntry[]> {
+  return Promise.race([
+    enrichEpicLibraryImages(entries),
+    new Promise<EpicLibraryEntry[]>((resolve) => {
+      setTimeout(() => resolve(entries), timeoutMs)
+    })
+  ])
+}

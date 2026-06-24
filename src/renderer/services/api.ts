@@ -147,6 +147,9 @@ export const api = {
   addGame: (data: Record<string, unknown>) =>
     request<import('@shared/types').Game>('/games', { method: 'POST', body: JSON.stringify(data) }),
   launchGame: (id: string) => request<{ success: boolean }>(`/games/${id}/launch`, { method: 'POST' }),
+  getRunningGame: () =>
+    request<{ running: import('@shared/types').RunningGameInfo | null }>('/games/running'),
+  stopGame: (id: string) => request<{ success: boolean }>(`/games/${id}/stop`, { method: 'POST' }),
 
   getTrophies: () => request<import('@shared/types').Trophy[]>('/trophies'),
   getTrophyStats: () =>

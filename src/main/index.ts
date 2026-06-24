@@ -5,6 +5,7 @@ import { initDatabase, getDatabase } from '../database'
 import { createApiServer } from '../api/server'
 import { startOAuthServer } from '../integrations/oauthServer'
 import { importSteamToolsFiles } from '../launcher/steamTools'
+import { focusRunningGame } from '../launcher/runningGame'
 
 const isDev = !app.isPackaged
 
@@ -144,6 +145,17 @@ function registerIpcHandlers(): void {
   ipcMain.handle('window:toggleFullscreen', () => {
     mainWindow?.setFullScreen(!mainWindow.isFullScreen())
   })
+  ipcMain.handle('window:focus', () => {
+    if (!mainWindow) return false
+    if (mainWindow.isMinimized()) mainWindow.restore()
+    mainWindow.show()
+    mainWindow.focus()
+    if (process.platform === 'win32') {
+      mainWindow.moveTop()
+    }
+    return true
+  })
+  ipcMain.handle('window:focusGame', async () => focusRunningGame())
 
   ipcMain.handle('app:getVersion', () => app.getVersion())
   ipcMain.handle('app:getPlatform', () => process.platform)

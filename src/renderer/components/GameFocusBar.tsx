@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion'
-import { MoreHorizontal, Trophy } from 'lucide-react'
+import { MoreHorizontal, Square, Trophy } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../services/api'
 import type { Game } from '@shared/types'
@@ -7,8 +7,11 @@ import type { Game } from '@shared/types'
 interface GameFocusBarProps {
   game: Game
   onPlay: () => void
+  onStop?: () => void
   onDetails?: () => void
   isLaunching?: boolean
+  isStopping?: boolean
+  isRunning?: boolean
   showMoreButton?: boolean
   showTitle?: boolean
 }
@@ -23,8 +26,11 @@ function formatPlayTime(minutes: number): string {
 export function GameFocusBar({
   game,
   onPlay,
+  onStop,
   onDetails,
   isLaunching,
+  isStopping,
+  isRunning,
   showMoreButton = true,
   showTitle = true
 }: GameFocusBarProps): JSX.Element {
@@ -70,25 +76,44 @@ export function GameFocusBar({
             </motion.h1>
 
             <p className="text-white/55 text-base mb-5">
-              {game.playTimeMinutes > 0
-                ? formatPlayTime(game.playTimeMinutes)
-                : platformLabel[game.platform] ?? game.platform}
+              {isRunning
+                ? 'Jeu en cours'
+                : game.playTimeMinutes > 0
+                  ? formatPlayTime(game.playTimeMinutes)
+                  : platformLabel[game.platform] ?? game.platform}
             </p>
           </>
         )}
 
         <div className="flex items-center gap-3">
-          <button
-            onClick={onPlay}
-            disabled={isLaunching}
-            className={`min-w-[200px] px-10 py-3.5 rounded-full font-semibold text-base transition-all hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50 ${
-              isInstalled
-                ? 'bg-white text-black hover:bg-white/90'
-                : 'bg-white/20 hover:bg-white/30 backdrop-blur-xl border border-white/20 text-white'
-            }`}
-          >
-            {isLaunching ? 'Lancement...' : isInstalled ? 'Jouer' : 'Télécharger'}
-          </button>
+          {isRunning ? (
+            <>
+              <div className="min-w-[200px] px-10 py-3.5 rounded-full font-semibold text-base bg-emerald-500/20 text-emerald-100 border border-emerald-400/40 flex items-center justify-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                Jeu en cours
+              </div>
+              <button
+                onClick={onStop}
+                disabled={isStopping}
+                className="min-w-[160px] px-8 py-3.5 rounded-full font-semibold text-base bg-red-500/20 hover:bg-red-500/30 text-red-100 border border-red-400/40 transition-all hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                <Square size={16} fill="currentColor" />
+                {isStopping ? 'Fermeture...' : 'Quitter'}
+              </button>
+            </>
+          ) : (
+            <button
+              onClick={onPlay}
+              disabled={isLaunching}
+              className={`min-w-[200px] px-10 py-3.5 rounded-full font-semibold text-base transition-all hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50 ${
+                isInstalled
+                  ? 'bg-white text-black hover:bg-white/90'
+                  : 'bg-white/20 hover:bg-white/30 backdrop-blur-xl border border-white/20 text-white'
+              }`}
+            >
+              {isLaunching ? 'Lancement...' : isInstalled ? 'Jouer' : 'Télécharger'}
+            </button>
+          )}
           {showMoreButton && onDetails && (
             <button
               onClick={onDetails}

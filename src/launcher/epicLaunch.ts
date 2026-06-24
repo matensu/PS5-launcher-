@@ -82,26 +82,33 @@ export function findEpicGameExecutable(appName: string, installPath: string): st
   return scanForExecutable(installPath)
 }
 
-export async function launchEpicGameDirect(entry: EpicLibraryEntry): Promise<boolean> {
+export interface EpicLaunchResult {
+  ok: boolean
+  pid?: number
+  exePath?: string
+}
+
+export async function launchEpicGameDirect(entry: EpicLibraryEntry): Promise<EpicLaunchResult> {
   if (!entry.installed || !entry.installPath || !existsSync(entry.installPath)) {
     try {
       launchEpicGame(entry.appName)
-      return true
+      return { ok: true }
     } catch {
-      return false
+      return { ok: false }
     }
   }
 
   const exe = findEpicGameExecutable(entry.appName, entry.installPath)
   if (exe) {
     try {
-      spawn(exe, [], {
+      const child = spawn(exe, [], {
         cwd: dirname(exe),
         detached: true,
         stdio: 'ignore',
         shell: false
-      }).unref()
-      return true
+      })
+      child.unref()
+      return { ok: true, pid: child.pid, exePath: exe }
     } catch {
       // fallback to URI
     }
@@ -109,8 +116,8 @@ export async function launchEpicGameDirect(entry: EpicLibraryEntry): Promise<boo
 
   try {
     launchEpicGame(entry.appName)
-    return true
+    return { ok: true }
   } catch {
-    return false
+    return { ok: false }
   }
 }

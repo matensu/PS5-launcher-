@@ -8,6 +8,8 @@ declare global {
         maximize: () => Promise<void>
         close: () => Promise<void>
         toggleFullscreen: () => Promise<void>
+        focus: () => Promise<boolean>
+        focusGame: () => Promise<boolean>
       }
       app: {
         getVersion: () => Promise<string>

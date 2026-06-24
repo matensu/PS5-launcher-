@@ -7,6 +7,7 @@ import { api } from '../services/api'
 import { CinematicBackground } from '../components/CinematicBackground'
 import { GameFocusBar } from '../components/GameFocusBar'
 import { InstallProgressModal, type InstallTarget } from '../components/InstallProgressModal'
+import { useRunningGame, useStopGame } from '../hooks/useRunningGame'
 import type { Game } from '@shared/types'
 
 export function EpicGamePage(): JSX.Element {
@@ -14,7 +15,10 @@ export function EpicGamePage(): JSX.Element {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const [installTarget, setInstallTarget] = useState<InstallTarget | null>(null)
+  const [isStopping, setIsStopping] = useState(false)
   const decodedAppName = appName ? decodeURIComponent(appName) : ''
+  const runningGame = useRunningGame()
+  const { stopGame } = useStopGame()
 
   const { data: game, isLoading } = useQuery({
     queryKey: ['epic-game', decodedAppName],
@@ -24,8 +28,11 @@ export function EpicGamePage(): JSX.Element {
 
   const launchMutation = useMutation({
     mutationFn: () =>
-      game?.gameId ? api.launchGame(game.gameId) : api.launchEpicGame(decodedAppName)
+      game?.gameId ? api.launchGame(game.gameId) : api.launchEpicGame(decodedAppName),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['running-game'] })
   })
+
+  const isRunning = Boolean(game?.gameId && runningGame?.gameId === game.gameId)
 
   if (isLoading || !game) {
     return (
@@ -82,7 +89,18 @@ export function EpicGamePage(): JSX.Element {
                     coverUrl: game.coverUrl
                   })
             }
+            onStop={async () => {
+              if (!game.gameId) return
+              setIsStopping(true)
+              try {
+                await stopGame(game.gameId)
+              } finally {
+                setIsStopping(false)
+              }
+            }}
             isLaunching={launchMutation.isPending || installTarget?.id === game.appName}
+            isStopping={isStopping}
+            isRunning={isRunning}
             showMoreButton={false}
             showTitle={false}
           />

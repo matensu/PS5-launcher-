@@ -7,6 +7,7 @@ import { getDatabase, rowToGame } from '../database'
 import { launchEpicGame, openUri } from './launcherUrls'
 import { getEpicLibrary, getEpicGameByAppName } from './epicLibrary'
 import { launchEpicGameDirect } from './epicLaunch'
+import { registerRunningGame } from './runningGame'
 import { getAppSettings } from '../integrations/settingsHelper'
 import { setGamePresence } from '../integrations/discord'
 
@@ -224,6 +225,9 @@ export async function launchGame(gameId: string): Promise<boolean> {
   const installPath = game.install_path as string | undefined
 
   try {
+    let launchPid: number | undefined
+    let launchExePath: string | undefined
+
     switch (platform) {
       case 'steam':
         if (appId) openUri(`steam://run/${appId}`)
@@ -232,7 +236,10 @@ export async function launchGame(gameId: string): Promise<boolean> {
         if (appId) {
           const epicGame = getEpicGameByAppName(appId)
           if (epicGame) {
-            await launchEpicGameDirect(epicGame)
+            const result = await launchEpicGameDirect(epicGame)
+            if (!result.ok) return false
+            launchPid = result.pid
+            launchExePath = result.exePath
           } else {
             launchEpicGame(appId)
           }
@@ -249,8 +256,24 @@ export async function launchGame(gameId: string): Promise<boolean> {
     }
 
     const now = new Date().toISOString()
+    const sessionId = uuid()
     database.prepare('UPDATE games SET last_played = ? WHERE id = ?').run(now, gameId)
-    database.prepare('INSERT INTO play_sessions (id, game_id, started_at) VALUES (?, ?, ?)').run(uuid(), gameId, now)
+    database.prepare('INSERT INTO play_sessions (id, game_id, started_at) VALUES (?, ?, ?)').run(
+      sessionId,
+      gameId,
+      now
+    )
+
+    registerRunningGame({
+      gameId,
+      name: game.name as string,
+      platform,
+      installPath,
+      appId,
+      sessionId,
+      initialPid: launchPid,
+      exePath: launchExePath
+    })
 
     const settings = getAppSettings()
     if (settings.discordEnabled && settings.discordRichPresence) {

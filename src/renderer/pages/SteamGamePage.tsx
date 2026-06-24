@@ -8,6 +8,7 @@ import { CinematicBackground } from '../components/CinematicBackground'
 import { GameFocusBar } from '../components/GameFocusBar'
 import { GameAchievementsPanel } from '../components/GameAchievementsPanel'
 import { InstallProgressModal, type InstallTarget } from '../components/InstallProgressModal'
+import { useRunningGame, useStopGame } from '../hooks/useRunningGame'
 import type { Game } from '@shared/types'
 
 function formatPlayTime(minutes: number): string {
@@ -22,6 +23,9 @@ export function SteamGamePage(): JSX.Element {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const [installTarget, setInstallTarget] = useState<InstallTarget | null>(null)
+  const [isStopping, setIsStopping] = useState(false)
+  const runningGame = useRunningGame()
+  const { stopGame } = useStopGame()
 
   const { data: game, isLoading, error } = useQuery({
     queryKey: ['steam-game', appId],
@@ -33,6 +37,7 @@ export function SteamGamePage(): JSX.Element {
     mutationFn: async () => {
       if (game?.gameId) {
         await api.launchGame(game.gameId)
+        await queryClient.invalidateQueries({ queryKey: ['running-game'] })
       } else if (game) {
         setInstallTarget({
           platform: 'steam',
@@ -43,6 +48,8 @@ export function SteamGamePage(): JSX.Element {
       }
     }
   })
+
+  const isRunning = Boolean(game?.gameId && runningGame?.gameId === game.gameId)
 
   if (isLoading) {
     return (
@@ -175,7 +182,18 @@ export function SteamGamePage(): JSX.Element {
                       coverUrl: game.coverUrl
                     })
               }
+              onStop={async () => {
+                if (!game.gameId) return
+                setIsStopping(true)
+                try {
+                  await stopGame(game.gameId)
+                } finally {
+                  setIsStopping(false)
+                }
+              }}
               isLaunching={launchMutation.isPending || installTarget?.id === game.appId}
+              isStopping={isStopping}
+              isRunning={isRunning}
               showMoreButton={false}
               showTitle={false}
             />

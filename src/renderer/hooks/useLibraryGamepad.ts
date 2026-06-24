@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 import { useGamepad } from './useGamepad'
 import { useGridColumns, useGridFocus } from './useGridNavigation'
 
@@ -31,17 +31,45 @@ export function useLibraryGamepad<T>({
   enabled = true
 }: UseLibraryGamepadOptions<T>) {
   const navigate = useNavigate()
+  const location = useLocation()
   const columns = useGridColumns()
   const { focusedIndex, setFocusedIndex, move } = useGridFocus(items.length, columns)
   const [zone, setZone] = useState<LibraryZone>('grid')
   const gridRefs = useRef<Map<number, HTMLElement>>(new Map())
 
+  const isEpic = location.pathname.startsWith('/library/epic')
+
+  const switchTab = useCallback(
+    (direction: 'left' | 'right') => {
+      if (direction === 'left' && isEpic) navigate('/library')
+      if (direction === 'right' && !isEpic) navigate('/library/epic')
+    },
+    [isEpic, navigate]
+  )
+
+  const switchFilter = useCallback(
+    (direction: 'left' | 'right') => {
+      if (direction === 'left') {
+        onFilterChange(Math.max(0, filterIndex - 1))
+      } else {
+        onFilterChange(Math.min(filterCount - 1, filterIndex + 1))
+      }
+    },
+    [filterCount, filterIndex, onFilterChange]
+  )
+
   useEffect(() => {
-    if (zone === 'grid') {
+    if (zone === 'grid' && items.length > 0) {
       const el = gridRefs.current.get(focusedIndex)
       el?.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' })
     }
-  }, [focusedIndex, zone])
+  }, [focusedIndex, zone, items.length])
+
+  useEffect(() => {
+    if (focusedIndex >= items.length && items.length > 0) {
+      setFocusedIndex(items.length - 1)
+    }
+  }, [items.length, focusedIndex, setFocusedIndex])
 
   const registerGridRef = useCallback((index: number, el: HTMLElement | null) => {
     if (el) gridRefs.current.set(index, el)
@@ -50,15 +78,27 @@ export function useLibraryGamepad<T>({
 
   useGamepad(
     {
+      onBumperLeft: () => {
+        if (searchOpen) return
+        if (zone === 'tabs' || zone === 'grid') switchTab('left')
+        else switchFilter('left')
+      },
+      onBumperRight: () => {
+        if (searchOpen) return
+        if (zone === 'tabs' || zone === 'grid') switchTab('right')
+        else switchFilter('right')
+      },
       onNavigate: (dir) => {
         if (searchOpen) return
 
         if (zone === 'grid') {
-          if (dir === 'up' && focusedIndex < columns) {
-            setZone('search')
-            return
+          if (dir === 'up') {
+            if (focusedIndex < columns) {
+              setZone('filters')
+              return
+            }
           }
-          move(dir)
+          if (items.length > 0) move(dir)
           return
         }
 
@@ -69,34 +109,53 @@ export function useLibraryGamepad<T>({
         }
 
         if (zone === 'filters') {
-          if (dir === 'down') setZone('search')
-          if (dir === 'left') onFilterChange(Math.max(0, filterIndex - 1))
-          if (dir === 'right') onFilterChange(Math.min(filterCount - 1, filterIndex + 1))
+          if (dir === 'down') setZone('grid')
           if (dir === 'up') setZone('tabs')
+          if (dir === 'left') switchFilter('left')
+          if (dir === 'right') switchFilter('right')
           return
         }
 
         if (zone === 'tabs') {
           if (dir === 'down') setZone('filters')
+          if (dir === 'left') switchTab('left')
+          if (dir === 'right') switchTab('right')
         }
       },
       onConfirm: () => {
         if (searchOpen) return
         if (zone === 'grid' && items[focusedIndex]) {
           onGridConfirm(items[focusedIndex], focusedIndex)
+          return
         }
-        if (zone === 'search') onSearchOpenChange(true)
+        if (zone === 'search') {
+          onSearchOpenChange(true)
+          return
+        }
+        if (zone === 'tabs') {
+          switchTab(isEpic ? 'left' : 'right')
+        }
       },
       onBack: () => {
         if (searchOpen) {
           onSearchOpenChange(false)
           return
         }
-        if (zone !== 'grid') {
+        if (zone === 'grid') {
+          navigate(backPath)
+          return
+        }
+        if (zone === 'search') {
           setZone('grid')
           return
         }
-        navigate(backPath)
+        if (zone === 'filters') {
+          setZone('grid')
+          return
+        }
+        if (zone === 'tabs') {
+          setZone('filters')
+        }
       },
       onSearch: () => {
         if (!searchOpen) {
@@ -105,7 +164,8 @@ export function useLibraryGamepad<T>({
         }
       }
     },
-    enabled && !searchOpen
+    enabled,
+    100
   )
 
   return {
