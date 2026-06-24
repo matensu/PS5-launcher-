@@ -6,7 +6,6 @@ import {
   Download,
   Play,
   RefreshCw,
-  Search,
   HardDrive,
   CloudDownload,
   ArrowLeft,
@@ -18,6 +17,8 @@ import { api } from '../services/api'
 import { CinematicBackground } from '../components/CinematicBackground'
 import { LibraryTabs } from '../components/LibraryTabs'
 import { InstallProgressModal, type InstallTarget } from '../components/InstallProgressModal'
+import { ControllerSearchBar } from '../components/ControllerSearchBar'
+import { useLibraryGamepad } from '../hooks/useLibraryGamepad'
 import type { SteamLibraryGame } from '@shared/types'
 
 type FilterMode = 'all' | 'installed' | 'not-installed' | 'steamtools'
@@ -34,13 +35,15 @@ function GameCard({
   onOpen,
   onInstall,
   onPlay,
-  isInstalling
+  isInstalling,
+  isFocused
 }: {
   game: SteamLibraryGame
   onOpen: () => void
   onInstall: () => void
   onPlay: () => void
   isInstalling: boolean
+  isFocused?: boolean
 }): JSX.Element {
   const [imgFailed, setImgFailed] = useState(false)
 
@@ -51,7 +54,11 @@ function GameCard({
       animate={{ opacity: 1, scale: 1 }}
       exit={{ opacity: 0, scale: 0.95 }}
       onClick={onOpen}
-      className="group relative rounded-2xl overflow-hidden bg-white/5 border border-white/10 hover:border-white/25 transition-colors cursor-pointer"
+      className={`group relative rounded-2xl overflow-hidden bg-white/5 border transition-all cursor-pointer ${
+        isFocused
+          ? 'border-white ring-2 ring-white scale-[1.03] z-10 shadow-[0_0_32px_rgba(255,255,255,0.2)]'
+          : 'border-white/10 hover:border-white/25'
+      }`}
     >
       <div className="aspect-[3/4] relative overflow-hidden">
         {!imgFailed && game.coverUrl ? (
@@ -132,8 +139,9 @@ export function SteamLibraryPage(): JSX.Element {
   const queryClient = useQueryClient()
   const [filter, setFilter] = useState<FilterMode>('all')
   const [search, setSearch] = useState('')
+  const [searchOpen, setSearchOpen] = useState(false)
   const [installTarget, setInstallTarget] = useState<InstallTarget | null>(null)
-  const [focusedGame, setFocusedGame] = useState<SteamLibraryGame | null>(null)
+  const [hoveredGame, setHoveredGame] = useState<SteamLibraryGame | null>(null)
 
   const [appIdInput, setAppIdInput] = useState('')
   const [importMessage, setImportMessage] = useState<string | null>(null)
@@ -231,10 +239,27 @@ export function SteamLibraryPage(): JSX.Element {
     { id: 'steamtools', label: 'SteamTools', count: stats.steamTools }
   ]
 
+  const filterIndex = filters.findIndex((f) => f.id === filter)
+
+  const { focusedIndex, registerGridRef, isGridFocused, isFilterFocused, isSearchFocused } =
+    useLibraryGamepad({
+      items: filteredGames,
+      filterCount: filters.length,
+      filterIndex: Math.max(0, filterIndex),
+      onFilterChange: (i) => setFilter(filters[i]?.id ?? 'all'),
+      searchOpen,
+      onSearchOpenChange: setSearchOpen,
+      onGridConfirm: (game) => navigate(`/library/game/${game.appId}`),
+      backPath: '/'
+    })
+
+  const controllerFocusedGame = filteredGames[focusedIndex] ?? null
+  const backgroundGame = controllerFocusedGame ?? hoveredGame
+
   return (
     <div className="relative h-full flex flex-col overflow-hidden">
       <CinematicBackground
-        imageUrl={focusedGame?.bannerUrl ?? focusedGame?.coverUrl}
+        imageUrl={backgroundGame?.bannerUrl ?? backgroundGame?.coverUrl}
         variant="home"
         blurAmount={64}
         showParticles
@@ -254,6 +279,7 @@ export function SteamLibraryPage(): JSX.Element {
             <p className="text-white/50 mt-1">
               {stats.total} jeux · {stats.installed} installés · {stats.steamTools} SteamTools
             </p>
+            <p className="text-white/35 text-xs mt-1">Manette : Y = recherche · B = retour</p>
             {steamToolsStatus?.enabled && (
               <p className="text-white/35 text-xs mt-1 flex items-center gap-1.5">
                 <Puzzle size={12} />
@@ -312,7 +338,7 @@ export function SteamLibraryPage(): JSX.Element {
 
         <div className="flex flex-wrap items-center gap-4 mb-6">
           <div className="flex gap-2">
-            {filters.map((f) => (
+            {filters.map((f, i) => (
               <button
                 key={f.id}
                 onClick={() => setFilter(f.id)}
@@ -320,7 +346,7 @@ export function SteamLibraryPage(): JSX.Element {
                   filter === f.id
                     ? 'bg-white text-black'
                     : 'bg-white/10 text-white/70 hover:bg-white/15 hover:text-white'
-                }`}
+                } ${isFilterFocused(i) ? 'ring-2 ring-white' : ''}`}
               >
                 {f.label}
                 <span className="ml-1.5 opacity-60">{f.count}</span>
@@ -328,14 +354,14 @@ export function SteamLibraryPage(): JSX.Element {
             ))}
           </div>
 
-          <div className="flex-1 min-w-[200px] max-w-md relative">
-            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40" />
-            <input
-              type="text"
-              placeholder="Rechercher un jeu..."
+          <div className="flex-1 min-w-[200px] max-w-md">
+            <ControllerSearchBar
               value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 rounded-full bg-black/30 border border-white/10 text-white text-sm placeholder:text-white/40 focus:outline-none focus:border-white/30 backdrop-blur-md"
+              onChange={setSearch}
+              placeholder="Rechercher un jeu..."
+              keyboardOpen={searchOpen}
+              onKeyboardOpenChange={setSearchOpen}
+              isFocused={isSearchFocused}
             />
           </div>
         </div>
@@ -359,11 +385,12 @@ export function SteamLibraryPage(): JSX.Element {
           <div className="flex-1 overflow-y-auto pr-2 -mr-2">
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7 gap-4">
               <AnimatePresence mode="popLayout">
-                {filteredGames.map((game) => (
+                {filteredGames.map((game, index) => (
                   <div
                     key={game.appId}
-                    onMouseEnter={() => setFocusedGame(game)}
-                    onMouseLeave={() => setFocusedGame(null)}
+                    ref={(el) => registerGridRef(index, el)}
+                    onMouseEnter={() => setHoveredGame(game)}
+                    onMouseLeave={() => setHoveredGame(null)}
                   >
                     <GameCard
                       game={game}
@@ -371,6 +398,7 @@ export function SteamLibraryPage(): JSX.Element {
                       onInstall={() => handleInstall(game)}
                       onPlay={() => handlePlay(game)}
                       isInstalling={installTarget?.platform === 'steam' && installTarget.id === game.appId}
+                      isFocused={isGridFocused(index)}
                     />
                   </div>
                 ))}

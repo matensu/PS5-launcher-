@@ -5,7 +5,8 @@ import { v4 as uuid } from 'uuid'
 import type { Game, GamePlatform } from '../shared/types'
 import { getDatabase, rowToGame } from '../database'
 import { launchEpicGame, openUri } from './launcherUrls'
-import { getEpicLibrary } from './epicLibrary'
+import { getEpicLibrary, getEpicGameByAppName } from './epicLibrary'
+import { launchEpicGameDirect } from './epicLaunch'
 import { getAppSettings } from '../integrations/settingsHelper'
 import { setGamePresence } from '../integrations/discord'
 
@@ -228,7 +229,14 @@ export async function launchGame(gameId: string): Promise<boolean> {
         if (appId) openUri(`steam://run/${appId}`)
         break
       case 'epic':
-        if (appId) launchEpicGame(appId)
+        if (appId) {
+          const epicGame = getEpicGameByAppName(appId)
+          if (epicGame) {
+            await launchEpicGameDirect(epicGame)
+          } else {
+            launchEpicGame(appId)
+          }
+        }
         break
       default:
         if (installPath && existsSync(installPath)) {

@@ -35,6 +35,7 @@ import {
   getEpicLauncherInfo
 } from '../launcher/epicLibrary'
 import { getSteamInstallStatus } from '../launcher/steamInstall'
+import { enrichEpicLibraryImages } from '../launcher/epicMetadata'
 import { getEpicInstallStatus } from '../launcher/epicInstall'
 import { searchStore, openStorePurchase } from '../launcher/gameStore'
 import {
@@ -51,6 +52,18 @@ import { addGameSchema, updateProfileSchema, settingsSchema, launchGameSchema } 
 import type { Settings } from '../shared/types'
 import { XP_PER_TROPHY } from '../shared/types'
 import { getAppSettings } from '../integrations/settingsHelper'
+import {
+  invalidateAllLibraryCaches,
+  invalidateSteamCaches,
+  invalidateEpicCaches,
+  steamLibraryCache,
+  epicLibraryCache,
+  gamesListCache,
+  steamGameCache,
+  epicGameCache,
+  storeSearchCache,
+  statsCache
+} from './libraryCache'
 import {
   getDiscordStatus,
   openDiscord,
@@ -116,20 +129,23 @@ export function createApiServer(port = 3847): ReturnType<typeof express> {
       if (!isSteamAvailable()) {
         return res.status(404).json({ error: 'Steam non détecté sur ce PC' })
       }
-      const library = getSteamLibrary()
-      const enriched = await enrichSteamLibraryNames(library)
-      const installed = enriched.filter((g) => g.installed).length
-      const steamTools = enriched.filter((g) => g.steamTools).length
-      res.json({
-        games: enriched,
-        stats: {
-          total: enriched.length,
-          installed,
-          notInstalled: enriched.length - installed,
-          steamTools
-        },
-        steamTools: getSteamToolsStatus()
+      const payload = await steamLibraryCache.getOrSetAsync('full', async () => {
+        const library = getSteamLibrary()
+        const enriched = await enrichSteamLibraryNames(library)
+        const installed = enriched.filter((g) => g.installed).length
+        const steamTools = enriched.filter((g) => g.steamTools).length
+        return {
+          games: enriched,
+          stats: {
+            total: enriched.length,
+            installed,
+            notInstalled: enriched.length - installed,
+            steamTools
+          },
+          steamTools: getSteamToolsStatus()
+        }
       })
+      res.json(payload)
     } catch (err) {
       res.status(500).json({ error: (err as Error).message })
     }
@@ -163,7 +179,10 @@ export function createApiServer(port = 3847): ReturnType<typeof express> {
     if (!isSteamAvailable()) {
       return res.status(404).json({ error: 'Steam non détecté sur ce PC' })
     }
-    const game = await getSteamGameByAppId(req.params.appId)
+    const cacheKey = `game:${req.params.appId}`
+    const game = await steamGameCache.getOrSetAsync(cacheKey, () =>
+      getSteamGameByAppId(req.params.appId)
+    )
     if (!game) return res.status(404).json({ error: 'Jeu introuvable' })
     res.json(game)
   })
@@ -173,6 +192,7 @@ export function createApiServer(port = 3847): ReturnType<typeof express> {
       if (!isSteamAvailable()) {
         return res.status(404).json({ error: 'Steam non détecté sur ce PC' })
       }
+      invalidateSteamCaches()
       const result = await syncSteamLibraryToDatabase()
       const achievementSync = syncAllSteamAchievements()
       res.json({ ...result, achievementSync })
@@ -198,6 +218,7 @@ export function createApiServer(port = 3847): ReturnType<typeof express> {
   app.post('/api/steam/library/:appId/install', async (req, res) => {
     const success = await installSteamGame(req.params.appId)
     if (!success) return res.status(500).json({ error: 'Impossible de lancer l\'installation' })
+    invalidateSteamCaches()
     res.json({ success: true, status: getSteamInstallStatus(req.params.appId) })
   })
 
@@ -206,35 +227,45 @@ export function createApiServer(port = 3847): ReturnType<typeof express> {
   })
 
   // Epic library
-  app.get('/api/epic/library', (_req, res) => {
+  app.get('/api/epic/library', async (_req, res) => {
     if (!isEpicAvailable()) {
       return res.status(404).json({ error: 'Epic Games Launcher non détecté' })
     }
-    const games = getEpicLibrary()
-    const installed = games.filter((g) => g.installed).length
-    const launcher = getEpicLauncherInfo()
-    res.json({
-      games,
-      stats: { total: games.length, installed, notInstalled: games.length - installed },
-      launcher
+    const payload = await epicLibraryCache.getOrSetAsync('full', async () => {
+      const games = await enrichEpicLibraryImages(getEpicLibrary())
+      const installed = games.filter((g) => g.installed).length
+      const launcher = getEpicLauncherInfo()
+      return {
+        games,
+        stats: { total: games.length, installed, notInstalled: games.length - installed },
+        launcher
+      }
     })
+    res.json(payload)
   })
 
   app.post('/api/epic/library/sync', (_req, res) => {
     if (!isEpicAvailable()) {
       return res.status(404).json({ error: 'Epic Games Launcher non détecté' })
     }
+    invalidateEpicCaches()
     res.json(syncEpicLibraryToDatabase())
   })
 
-  app.get('/api/epic/library/:appName', (req, res) => {
-    const game = getEpicGameByAppName(req.params.appName)
-    if (!game) return res.status(404).json({ error: 'Jeu introuvable' })
+  app.get('/api/epic/library/:appName', async (req, res) => {
+    const cacheKey = `game:${req.params.appName}`
+    const cached = await epicGameCache.getOrSetAsync(cacheKey, async () => {
+      const raw = getEpicGameByAppName(req.params.appName)
+      if (!raw) return null
+      const [game] = await enrichEpicLibraryImages([raw])
+      return game
+    })
+    if (!cached) return res.status(404).json({ error: 'Jeu introuvable' })
     const db = getDatabase()
     const row = db
       .prepare(`SELECT id FROM games WHERE platform = 'epic' AND app_id = ?`)
-      .get(game.appName) as { id: string } | undefined
-    res.json({ ...game, gameId: row?.id })
+      .get(req.params.appName) as { id: string } | undefined
+    res.json({ ...cached, gameId: row?.id })
   })
 
   app.post('/api/epic/library/:appName/launch', async (req, res) => {
@@ -257,8 +288,9 @@ export function createApiServer(port = 3847): ReturnType<typeof express> {
   app.get('/api/store/search', async (req, res) => {
     const query = String(req.query.q ?? '')
     const platform = (req.query.platform as 'all' | 'steam' | 'epic') ?? 'all'
+    const cacheKey = `${platform}:${query.toLowerCase().trim()}`
     try {
-      const result = await searchStore(query, platform)
+      const result = await storeSearchCache.getOrSetAsync(cacheKey, () => searchStore(query, platform))
       res.json(result)
     } catch (err) {
       res.status(500).json({ error: (err as Error).message })
@@ -274,16 +306,20 @@ export function createApiServer(port = 3847): ReturnType<typeof express> {
 
   // Games
   app.get('/api/games', (req, res) => {
-    const db = getDatabase()
     const installedOnly = req.query.installed === 'true'
-    const sql = installedOnly
-      ? `SELECT * FROM games WHERE install_path IS NOT NULL AND install_path != '' ORDER BY last_played DESC, name ASC`
-      : `SELECT * FROM games ORDER BY last_played DESC, name ASC`
-    const games = db.prepare(sql).all()
-    res.json(games.map((g) => rowToGame(g as Record<string, unknown>)))
+    const cacheKey = installedOnly ? 'installed' : 'all'
+    const games = gamesListCache.getOrSet(cacheKey, () => {
+      const db = getDatabase()
+      const sql = installedOnly
+        ? `SELECT * FROM games WHERE install_path IS NOT NULL AND install_path != '' ORDER BY last_played DESC, name ASC`
+        : `SELECT * FROM games ORDER BY last_played DESC, name ASC`
+      return db.prepare(sql).all().map((g) => rowToGame(g as Record<string, unknown>))
+    })
+    res.json(games)
   })
 
   app.post('/api/games/sync', async (_req, res) => {
+    invalidateAllLibraryCaches()
     const games = syncDetectedGames()
     let steamLibrary = { synced: 0, installed: 0, total: 0 }
     let epicLibrary = { synced: 0, installed: 0, total: 0 }
@@ -322,6 +358,7 @@ export function createApiServer(port = 3847): ReturnType<typeof express> {
     )
 
     const game = db.prepare('SELECT * FROM games WHERE id = ?').get(id)
+    gamesListCache.clear()
     res.status(201).json(rowToGame(game as Record<string, unknown>))
   })
 
@@ -338,6 +375,8 @@ export function createApiServer(port = 3847): ReturnType<typeof express> {
 
     const success = await launchGame(req.params.id)
     if (!success) return res.status(500).json({ error: 'Failed to launch game' })
+    gamesListCache.clear()
+    statsCache.clear()
     res.json({ success: true })
   })
 
@@ -508,6 +547,7 @@ export function createApiServer(port = 3847): ReturnType<typeof express> {
 
   // Stats
   app.get('/api/stats', async (_req, res) => {
+    const payload = await statsCache.getOrSetAsync('dashboard', async () => {
     const db = getDatabase()
     const profile = db.prepare('SELECT * FROM profile LIMIT 1').get() as Record<string, unknown>
     const trophyStats = getTrophyStats()
@@ -535,12 +575,14 @@ export function createApiServer(port = 3847): ReturnType<typeof express> {
       }
     }
 
-    res.json({
+    return {
       profile: rowToProfile(profile),
       trophies: trophyStats,
       recentGames: recentGames.map((g) => rowToGame(g as Record<string, unknown>)),
       media
+    }
     })
+    res.json(payload)
   })
 
   // Cloud API scaffold (local mock - replace with PostgreSQL in production)

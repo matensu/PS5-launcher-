@@ -1,5 +1,4 @@
 import { useRef, useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { LayoutGrid, Play, Library } from 'lucide-react'
 import type { Game } from '@shared/types'
@@ -11,6 +10,7 @@ interface GameTopStripProps {
   games: Game[]
   focusedIndex: number
   onFocus: (index: number) => void
+  showLibraryTile?: boolean
 }
 
 function SquareTile({
@@ -67,8 +67,7 @@ function GameCover({ url, name, isFocused }: { url?: string; name: string; isFoc
   )
 }
 
-export function GameTopStrip({ games, focusedIndex, onFocus }: GameTopStripProps): JSX.Element {
-  const navigate = useNavigate()
+export function GameTopStrip({ games, focusedIndex, onFocus, showLibraryTile = true }: GameTopStripProps): JSX.Element {
   const scrollRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
     const container = scrollRef.current
@@ -120,17 +119,25 @@ export function GameTopStrip({ games, focusedIndex, onFocus }: GameTopStripProps
           )
         })}
 
+        {showLibraryTile && (
         <button
-          onClick={() => navigate('/library')}
-          className="flex-shrink-0 opacity-40 hover:opacity-70 transition-opacity"
-          title="Bibliothèque Steam"
+          onClick={() => onFocus(games.length)}
+          className={`flex-shrink-0 transition-opacity ${
+            focusedIndex === games.length ? 'opacity-100 z-10' : 'opacity-40 hover:opacity-70'
+          }`}
+          title="Bibliothèque"
         >
-          <SquareTile size={TILE_NORMAL} isFocused={false} className="bg-white/10 backdrop-blur-md">
+          <SquareTile
+            size={focusedIndex === games.length ? TILE_FOCUSED : TILE_NORMAL}
+            isFocused={focusedIndex === games.length}
+            className="bg-white/10 backdrop-blur-md"
+          >
             <div className="w-full h-full flex items-center justify-center">
-              <Library size={30} className="text-white" />
+              <Library size={focusedIndex === games.length ? 36 : 30} className="text-white" />
             </div>
           </SquareTile>
         </button>
+        )}
       </div>
     </div>
   )

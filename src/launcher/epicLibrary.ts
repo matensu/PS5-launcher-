@@ -4,6 +4,7 @@ import { v4 as uuid } from 'uuid'
 import { getDatabase } from '../database'
 import { launchEpicGame } from './launcherUrls'
 import { startEpicInstall } from './epicInstall'
+import { launchEpicGameDirect } from './epicLaunch'
 import {
   getEpicManifestsPath,
   getEpicGameInstallRoots,
@@ -199,12 +200,16 @@ export function syncEpicLibraryToDatabase(): { synced: number; installed: number
 }
 
 export async function launchEpicGameByAppName(appName: string): Promise<boolean> {
-  try {
-    launchEpicGame(appName)
-    return true
-  } catch {
-    return false
+  const game = getEpicGameByAppName(appName)
+  if (!game) {
+    try {
+      launchEpicGame(appName)
+      return true
+    } catch {
+      return false
+    }
   }
+  return launchEpicGameDirect(game)
 }
 
 export async function installEpicGameByAppName(appName: string): Promise<boolean> {

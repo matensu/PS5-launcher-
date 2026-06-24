@@ -202,7 +202,7 @@ export function SettingsPage(): JSX.Element {
               onChange={(v) => toggle('showMediaInOverlay', v)}
             />
             <p className="text-xs text-white/30 mt-4">
-              Raccourci overlay : Ctrl + Shift + G · Naviguez avec ← → ou en glissant
+              Raccourci overlay : Ctrl + Shift + G · Manette : bouton central (Guide/PS) ou Start/Options
             </p>
           </motion.section>
 

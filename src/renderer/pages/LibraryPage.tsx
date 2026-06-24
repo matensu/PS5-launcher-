@@ -15,7 +15,8 @@ import type { Game } from '@shared/types'
 export function LibraryPage(): JSX.Element {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
-  const [focusedIndex, setFocusedIndex] = useState(0)
+  const [focusedIndex, setFocusedIndex] = useState(-1)
+  const [bgRotateIndex, setBgRotateIndex] = useState(0)
   const setGlobalFocus = useAppStore((s) => s.setFocusedIndex)
 
   const { data: games = [], isLoading } = useQuery({
@@ -36,38 +37,60 @@ export function LibraryPage(): JSX.Element {
 
   const launchMutation = useMutation({ mutationFn: api.launchGame })
 
-  const focusedGame = focusedIndex >= 0 ? games[focusedIndex] : null
+  const maxStripIndex = games.length
   const isMenu = focusedIndex === -1
-  const isGameFocus = focusedIndex >= 0 && !!focusedGame
-  const backgroundUrl = isGameFocus ? (focusedGame?.bannerUrl ?? focusedGame?.coverUrl) : undefined
+  const isLibraryTile = focusedIndex === games.length
+  const isGameFocus = focusedIndex >= 0 && focusedIndex < games.length
+  const focusedGame = isGameFocus ? games[focusedIndex] : null
+
+  const menuBgGame = games[bgRotateIndex % Math.max(games.length, 1)]
+  const backgroundUrl = isGameFocus
+    ? (focusedGame?.bannerUrl ?? focusedGame?.coverUrl)
+    : isMenu && games.length > 0
+      ? (menuBgGame?.bannerUrl ?? menuBgGame?.coverUrl)
+      : undefined
+
+  useEffect(() => {
+    if (!isMenu || games.length <= 1) return
+    const timer = setInterval(() => {
+      setBgRotateIndex((i) => (i + 1) % games.length)
+    }, 9000)
+    return () => clearInterval(timer)
+  }, [isMenu, games.length])
 
   const scrollFocus = useCallback(
     (index: number) => {
-      const clamped = Math.max(-1, Math.min(games.length - 1, index))
+      const clamped = Math.max(-1, Math.min(maxStripIndex, index))
       setFocusedIndex(clamped)
       setGlobalFocus(Math.max(0, clamped))
     },
-    [games.length, setGlobalFocus]
+    [maxStripIndex, setGlobalFocus]
   )
 
   useGamepad({
     onNavigate: (dir) => {
       if (dir === 'left') scrollFocus(focusedIndex - 1)
       if (dir === 'right') scrollFocus(focusedIndex + 1)
+      if (dir === 'up' && focusedIndex >= 0) scrollFocus(-1)
+      if (dir === 'down' && focusedIndex === -1 && games.length > 0) scrollFocus(0)
     },
     onConfirm: () => {
-      if (isMenu) return
-      const game = games[focusedIndex]
-      if (game) handleLaunch(game)
+      if (isLibraryTile) {
+        navigate('/library')
+        return
+      }
+      if (isGameFocus && focusedGame) handleLaunch(focusedGame)
     },
-    onBack: () => setFocusedIndex(-1)
+    onBack: () => {
+      if (focusedIndex > -1) scrollFocus(-1)
+    }
   })
 
   useEffect(() => {
-    if (games.length > 0 && focusedIndex >= games.length) {
+    if (games.length > 0 && focusedIndex >= games.length && focusedIndex !== maxStripIndex) {
       setFocusedIndex(0)
     }
-  }, [games.length, focusedIndex])
+  }, [games.length, focusedIndex, maxStripIndex])
 
   const handleLaunch = async (game: Game) => {
     await launchMutation.mutateAsync(game.id)
@@ -85,12 +108,11 @@ export function LibraryPage(): JSX.Element {
   )
 
   return (
-    <div className="relative h-full flex flex-col overflow-hidden">
+    <div className="relative z-10 h-full flex flex-col overflow-hidden">
       <CinematicBackground
         imageUrl={backgroundUrl}
         variant={isGameFocus ? 'game' : 'home'}
         blurAmount={56}
-        showParticles={!isGameFocus}
       />
 
       {isLoading ? (
@@ -115,7 +137,6 @@ export function LibraryPage(): JSX.Element {
         <>
           <div className="flex-1 min-h-0" />
 
-          {/* Même position bas-gauche : menu Accueil ou jeu sélectionné */}
           <div className="relative z-10">
             <div className="flex justify-start px-10 mb-2">{scannerButton}</div>
 
@@ -150,6 +171,14 @@ export function LibraryPage(): JSX.Element {
                     isLaunching={launchMutation.isPending}
                   />
                 </div>
+              ) : isLibraryTile ? (
+                <motion.div
+                  className="text-white/70 text-lg"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                >
+                  Appuyez sur <span className="text-white font-semibold">A</span> pour ouvrir la bibliothèque
+                </motion.div>
               ) : null}
             </div>
           </div>

@@ -13,7 +13,8 @@ export function TopNav(): JSX.Element {
   const { data: media } = useQuery({
     queryKey: ['media'],
     queryFn: api.getMediaStatus,
-    refetchInterval: 8000
+    refetchInterval: 15_000,
+    staleTime: 12_000
   })
 
   useEffect(() => {

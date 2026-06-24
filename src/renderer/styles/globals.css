@@ -24,15 +24,23 @@ html, body, #root {
   width: 100%;
   height: 100%;
   overflow: hidden;
-  background: var(--color-bg);
+  background: #06060e;
   color: var(--color-text);
   font-family: 'Segoe UI', system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
 }
 
 body {
-  background: var(--color-bg);
   background-image: var(--theme-gradient);
+}
+
+body.gamepad-mode {
+  cursor: none;
+}
+
+body.gamepad-mode button:focus,
+body.gamepad-mode [data-gamepad-focus='true'] {
+  outline: none;
 }
 
 ::-webkit-scrollbar {

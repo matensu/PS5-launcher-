@@ -1,12 +1,15 @@
 import { motion, AnimatePresence } from 'framer-motion'
 import { ParticleField } from './ParticleField'
+import { DynamicBackground } from './DynamicBackground'
 
 interface CinematicBackgroundProps {
   imageUrl?: string
   fallbackGradient?: string
   blurAmount?: number
   showParticles?: boolean
-  /** 'game' = fond net type PS5, 'home' = fond flouté */
+  /** Fond animé aurora + orbes — true par défaut */
+  animatedBackground?: boolean
+  /** 'game' = image nette type PS5, 'home' = image floutée */
   variant?: 'home' | 'game'
 }
 
@@ -15,22 +18,34 @@ export function CinematicBackground({
   fallbackGradient,
   blurAmount = 48,
   showParticles = true,
+  animatedBackground = true,
   variant = 'home'
 }: CinematicBackgroundProps): JSX.Element {
   const isGame = variant === 'game' && !!imageUrl
+  const auroraIntensity = isGame ? 0.45 : 1
 
   return (
-    <>
-      <div className="fixed inset-0 -z-10 overflow-hidden">
+    <div className="fixed inset-0 z-0 overflow-hidden pointer-events-none" aria-hidden>
+      {animatedBackground && <DynamicBackground intensity={auroraIntensity} />}
+
+      <div className="absolute inset-0">
         <AnimatePresence mode="wait">
           {imageUrl ? (
             <motion.div
               key={imageUrl}
               className="absolute inset-0"
-              initial={{ opacity: 0, scale: isGame ? 1.04 : 1.12 }}
-              animate={{ opacity: 1, scale: isGame ? 1 : 1.05 }}
+              initial={{ opacity: 0, scale: isGame ? 1.05 : 1.1 }}
+              animate={{
+                opacity: 1,
+                scale: isGame ? [1, 1.06, 1] : [1.05, 1.14, 1.05],
+                x: isGame ? [0, 12, 0] : [0, -8, 0]
+              }}
               exit={{ opacity: 0 }}
-              transition={{ duration: 0.7, ease: [0.4, 0, 0.2, 1] }}
+              transition={{
+                opacity: { duration: 0.8 },
+                scale: { duration: 22, repeat: Infinity, ease: 'easeInOut' },
+                x: { duration: 30, repeat: Infinity, ease: 'easeInOut' }
+              }}
             >
               <img
                 src={imageUrl}
@@ -38,47 +53,52 @@ export function CinematicBackground({
                 className="w-full h-full object-cover"
                 style={{
                   filter: isGame
-                    ? 'brightness(0.72) saturate(1.15)'
-                    : `blur(${blurAmount}px) brightness(0.45) saturate(1.2)`
+                    ? 'brightness(0.75) saturate(1.2)'
+                    : `blur(${blurAmount}px) brightness(0.5) saturate(1.3)`
                 }}
               />
             </motion.div>
-          ) : (
+          ) : fallbackGradient ? (
             <motion.div
               key="gradient"
               className="absolute inset-0"
-              style={{ background: fallbackGradient ?? 'var(--theme-gradient), var(--color-bg)' }}
+              style={{ background: fallbackGradient }}
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
             />
-          )}
+          ) : null}
         </AnimatePresence>
 
-        {!isGame && <div className="absolute inset-0 backdrop-blur-[2px] bg-[#0a0a14]/40" />}
+        {!isGame && imageUrl && (
+          <div className="absolute inset-0 bg-[#0a0a14]/30" />
+        )}
 
         {isGame ? (
           <>
-            <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/20 to-black/30" />
-            <div className="absolute inset-0 bg-gradient-to-r from-black/50 via-transparent to-black/40" />
-            <div className="absolute bottom-0 left-0 right-0 h-[45%] bg-gradient-to-t from-black/90 via-black/50 to-transparent" />
+            <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/25 to-black/20" />
+            <div className="absolute inset-0 bg-gradient-to-r from-black/40 via-transparent to-black/30" />
+            <div className="absolute bottom-0 left-0 right-0 h-[50%] bg-gradient-to-t from-black/85 via-black/40 to-transparent" />
           </>
         ) : (
           <>
-            <div className="absolute inset-0 bg-gradient-to-t from-[#08080f] via-[#08080f]/60 to-[#08080f]/20" />
-            <div className="absolute inset-0 bg-gradient-to-r from-[#08080f]/70 via-transparent to-[#08080f]/50" />
-            <div className="absolute bottom-0 left-0 right-0 h-2/3 bg-gradient-to-t from-[#08080f] via-[#08080f]/80 to-transparent" />
-            <div
-              className="absolute inset-0 opacity-30"
+            <div className="absolute inset-0 bg-gradient-to-t from-[#08080f]/90 via-[#08080f]/40 to-transparent" />
+            <div className="absolute inset-0 bg-gradient-to-r from-[#08080f]/50 via-transparent to-[#08080f]/35" />
+            <motion.div
+              className="absolute inset-0"
               style={{
                 background:
-                  'radial-gradient(ellipse at 50% 30%, rgba(0, 112, 209, 0.15) 0%, transparent 60%)'
+                  'radial-gradient(ellipse at 50% 25%, rgba(0, 112, 209, 0.25) 0%, transparent 55%)'
               }}
+              animate={{ opacity: [0.2, 0.45, 0.2] }}
+              transition={{ duration: 6, repeat: Infinity, ease: 'easeInOut' }}
             />
           </>
         )}
       </div>
 
-      {showParticles && !isGame && <ParticleField count={40} />}
-    </>
+      {showParticles && (
+        <ParticleField count={isGame ? 35 : 70} className="absolute inset-0 z-[2]" />
+      )}
+    </div>
   )
 }

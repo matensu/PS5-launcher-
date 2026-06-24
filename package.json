@@ -1,6 +1,6 @@
 {
   "name": "pc-console-os",
-  "version": "1.0.0",
+  "version": "1.2.0",
   "type": "module",
   "description": "Transform your gaming PC into a console experience",
   "main": "out/main/index.js",
