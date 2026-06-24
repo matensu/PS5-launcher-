@@ -56,6 +56,7 @@
   "build": {
     "appId": "com.pcconsoleos.app",
     "productName": "PC Console OS",
+    "forceCodeSigning": false,
     "directories": {
       "output": "dist"
     },
@@ -69,7 +70,8 @@
     "win": {
       "target": [
         "nsis"
-      ]
+      ],
+      "signAndEditExecutable": false
     },
     "linux": {
       "target": [
